@@ -1,12 +1,16 @@
 import sublime,sublime_plugin
 import os,sys,subprocess,threading
 from datetime import datetime
-
-TURKEY_DSN = 'Turkey'
+import json
+#Example localsettings.json
+#{
+#    "SQL_COMMAND":["sqlcmd","-h","db.some.domain","-U","jerkface","-w","securityftw"]
+#}
+settings = json.loads(open('localsettings.json').read())
 
 def sql_proc():
     return subprocess.Popen(
-                        ['isql',TURKEY_DSN,'-bc'],
+                        settings['SQL_COMMAND'],
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE
@@ -22,6 +26,10 @@ class SqlCall(threading.Thread):
     def run(self):       
         self.data = list() 
         for statement in self.sql_statements:
+            if not statement.strip().endswith(';'):
+                statement += ';'
+                statement = statement.lower()
+            statement += ' commit;'
             proc = sql_proc()
             tstamp = datetime.now()
             out,err = proc.communicate(statement)
@@ -34,7 +42,6 @@ class IsqlCommand(sublime_plugin.TextCommand):
     def log(self,data):
         if type(data) not in (str,unicode):
             data = str(data)
-        print data,
         self.log_view.insert(self.edit,self.offset,data)
         self.offset += len(data)
 
@@ -53,7 +60,7 @@ class IsqlCommand(sublime_plugin.TextCommand):
         sql_statements = [x + ';' for x in sql_statements.split(';') if x.strip() != '']
 
         #immediate feedback confirms somethings happening
-        self.log("[%s - %s]\n\n" % (TURKEY_DSN,datetime.now().time().strftime('%H:%M')))
+        self.log("[%s - %s]\n\n" % (datetime.now().time().strftime('%H:%M'),TURKEY_DSN))
         self.log(' > ' + ''.join(sql_statements).replace('\n','\n > ') + '\n\n')
 
         #run some things
@@ -77,7 +84,7 @@ class IsqlCommand(sublime_plugin.TextCommand):
             else:
                 not_finished.append(thread)
             if len(not_finished) > 0:
-                sublime.set_timeout(lambda: self.thread_handler(not_finished),500)
+                sublime.set_timeout(lambda: self.thread_handler(not_finished),1000)
             else:
                 self.log('\n[done]')
 
