@@ -15,24 +15,26 @@ def sql_proc():
 
 class SqlCall(threading.Thread):
 
-    data = list()
-
     def __init__(self, sql_statements):
         self.sql_statements = sql_statements
         threading.Thread.__init__(self)
 
-    def run(self):        
+    def run(self):       
+        self.data = list() 
         for statement in self.sql_statements:
             proc = sql_proc()
             tstamp = datetime.now()
             out,err = proc.communicate(statement)
             self.data.append((statement,tstamp,out,err))
+        self.sql_statements = None
+
 
 
 class IsqlCommand(sublime_plugin.TextCommand):
     def log(self,data):
         if type(data) not in (str,unicode):
             data = str(data)
+        print data,
         self.log_view.insert(self.edit,self.offset,data)
         self.offset += len(data)
 
