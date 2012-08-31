@@ -2,15 +2,26 @@ import sublime,sublime_plugin
 import os,sys,subprocess,threading
 from datetime import datetime
 import json
+
 #Example localsettings.json
 #{
-#    "SQL_COMMAND":["sqlcmd","-h","db.some.domain","-U","jerkface","-w","securityftw"]
+#    "SQL_COMMAND":"sqlcmd -h db.some.domain -U jerkface -w securityftw"],
+#    "SQL_EXPORT_COMMAND":"-o /home/user/sqldocs/{outfile}"
 #}
-settings = json.loads(open('localsettings.json').read())
 
-def sql_proc():
+settings = json.loads(open('localsettings.json').read())
+banned_words = ['<%= schema %> .','<%= schema %>.']
+
+def sql_proc(data=None,export=False):
+    if export:
+        cmd = ' '.join([settings['SQL_COMMAND'],settings['SQL_EXPORT_COMMAND']])
+    else:
+        cmd = settings['SQL_COMMAND']
+    cmd = cmd.format(**data)
+    print '[command %s]' % cmd
+    cmd = cmd.split()
     return subprocess.Popen(
-                        settings['SQL_COMMAND'],
+                        cmd,
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE
@@ -19,33 +30,42 @@ def sql_proc():
 
 class SqlCall(threading.Thread):
 
-    def __init__(self, sql_statements):
+    def __init__(self, sql_statements, export):
         self.sql_statements = sql_statements
+        self.export = export
         threading.Thread.__init__(self)
 
     def run(self):       
+        # settings = json.loads(open('localsettings.json').read())
         self.data = list() 
         for statement in self.sql_statements:
+            is_select = statement.strip().startswith('select')
+            print 'is_select',is_select
             if not statement.strip().endswith(';'):
                 statement += ';'
                 statement = statement.lower()
             statement += ' commit;'
-            proc = sql_proc()
+            statement = statement
+            fname = datetime.now().time().isoformat() + '.csv'
+            proc = sql_proc(data=dict(outfile=fname),export=is_select and self.export)
             tstamp = datetime.now()
             out,err = proc.communicate(statement)
+            if is_select and self.export:
+                out += 'output rendered to %s' % fname
             self.data.append((statement,tstamp,out,err))
         self.sql_statements = None
 
 
 
-class IsqlCommand(sublime_plugin.TextCommand):
+class SqlCommand(sublime_plugin.TextCommand):
     def log(self,data):
         if type(data) not in (str,unicode):
             data = str(data)
         self.log_view.insert(self.edit,self.offset,data)
         self.offset += len(data)
-
-    def run(self, edit):
+    def run(self,edit):
+        self._run(edit)
+    def _run(self, edit, export=False):
         """
             Runs selected code in isql using the named DSN.
         """
@@ -57,14 +77,19 @@ class IsqlCommand(sublime_plugin.TextCommand):
 
         #clean code two ways
         sql_statements = '\n'.join([self.view.substr(region) for region in self.view.sel()])
+        for banned_word in banned_words:
+            sql_statements = sql_statements.replace(banned_word,'')
         sql_statements = [x + ';' for x in sql_statements.split(';') if x.strip() != '']
 
         #immediate feedback confirms somethings happening
-        self.log("[%s - %s]\n\n" % (datetime.now().time().strftime('%H:%M'),TURKEY_DSN))
+        if export:
+            self.log("%s-Turkey-Export.log\n\n" % datetime.now().time().strftime('%H:%M'))
+        else:
+            self.log("%s-Turkey.log\n\n" % datetime.now().time().strftime('%H:%M'))
         self.log(' > ' + ''.join(sql_statements).replace('\n','\n > ') + '\n\n')
 
         #run some things
-        caller = SqlCall(sql_statements)
+        caller = SqlCall(sql_statements,export)
         caller.start()
         threads = [caller]
         self.log_view.end_edit(self.edit)
@@ -88,5 +113,9 @@ class IsqlCommand(sublime_plugin.TextCommand):
             else:
                 self.log('\n[done]')
 
+
+class SqlexportCommand(SqlCommand):
+    def run(self,edit):
+        SqlCommand._run(self,edit,export=True)
 
 
