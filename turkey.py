@@ -40,10 +40,13 @@ class SqlCall(threading.Thread):
         self.data = list() 
         for statement in self.sql_statements:
             is_select = statement.strip().startswith('select')
-            print 'is_select',is_select
+
             if not statement.strip().endswith(';'):
                 statement += ';'
                 statement = statement.lower()
+            if is_select and not self.export:
+                #limit results if returning them on the log tab
+                statement = statement.rstrip(';') + '\nlimit 1000;'
             statement += ' commit;'
             statement = statement
             fname = datetime.now().time().isoformat() + '.csv'
